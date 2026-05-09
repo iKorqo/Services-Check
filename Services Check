@@ -1,0 +1,60 @@
+function Get-ServiceInfo($Name) {
+    $svc    = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    $reg    = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" -ErrorAction SilentlyContinue
+
+    $regDisabled = $reg.Start -eq 4
+    $scmDisabled = $svc -and $svc.StartType -eq 'Disabled'
+
+    $disabledBy = @()
+    if ($regDisabled) { $disabledBy += 'Registry' }
+    if ($scmDisabled) { $disabledBy += 'SCM' }
+
+    $issue = if (-not $svc -and -not $reg) {
+        'Missing'
+    } elseif ($disabledBy.Count -gt 0) {
+        "Disabled [$($disabledBy -join ', ')]"
+    } else {
+        'OK'
+    }
+
+    [PSCustomObject]@{
+        Name   = $Name
+        Status = if ($svc) { $svc.Status } else { 'NOT FOUND' }
+        Issue  = $issue
+    }
+}
+
+$services = @('SysMain','PcaSvc','DPS','EventLog','Schedule','SearchIndexer','BAM','DusmSvc','Appinfo','DcomLaunch')
+$results  = $services | ForEach-Object { Get-ServiceInfo -Name $_ }
+
+$cdp = Get-Service 'CDPUserSvc_*' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($cdp) {
+    $reg = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$($cdp.Name)" -ErrorAction SilentlyContinue
+    if (-not $reg) { $reg = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\CDPUserSvc" -ErrorAction SilentlyContinue }
+
+    $regDisabled = $reg.Start -eq 4
+    $scmDisabled = $cdp.StartType -eq 'Disabled'
+
+    $disabledBy = @()
+    if ($regDisabled) { $disabledBy += 'Registry' }
+    if ($scmDisabled) { $disabledBy += 'SCM' }
+
+    $results += [PSCustomObject]@{
+        Name   = $cdp.Name
+        Status = $cdp.Status
+        Issue  = if ($disabledBy.Count -gt 0) { "Disabled [$($disabledBy -join ', ')]" } else { 'OK' }
+    }
+} else {
+    $results += [PSCustomObject]@{ Name = 'CDPUserSvc_*'; Status = 'NOT FOUND'; Issue = 'Missing' }
+}
+
+$nameWidth   = ($results.Name   | Measure-Object -Maximum -Property Length).Maximum
+$statusWidth = ($results.Status | Measure-Object -Maximum -Property Length).Maximum
+
+"{0,-$nameWidth}  {1,-$statusWidth}  {2}" -f 'Name','Status','Issue'
+"{0,-$nameWidth}  {1,-$statusWidth}  {2}" -f ('─' * $nameWidth),('─' * $statusWidth),('─' * 30)
+
+foreach ($r in $results) {
+    $color = if ($r.Issue -eq 'OK') { 'Green' } else { 'Red' }
+    Write-Host ("{0,-$nameWidth}  {1,-$statusWidth}  {2}" -f $r.Name, $r.Status, $r.Issue) -ForegroundColor $color
+}
