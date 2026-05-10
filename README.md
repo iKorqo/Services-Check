@@ -1,4 +1,4 @@
-# Windows Service Health Checker
+# Windows Service Checker
 
 ## How to Use
 
